@@ -62,9 +62,9 @@ void print_mac(const u_char* n) {
 }
 
 int print_eth(Ethernet eth) {
-    printf("S-MAC ");
+    printf("S-MAC\t");
     print_mac(eth.s_mac);
-    printf("D-MAC ");
+    printf("D-MAC\t");
     print_mac(eth.d_mac);
 
     // is IP?
@@ -78,9 +78,9 @@ void print_ip_addr(const u_char* n) {
 }
 
 int print_ip(IP ip) {
-    printf("S-IP ");
+    printf("S-IP\t");
     print_ip_addr(ip.s_ip);
-    printf("D-IP ");
+    printf("D-IP\t");
     print_ip_addr(ip.d_ip);
 
     // is TCP?
@@ -90,9 +90,9 @@ int print_ip(IP ip) {
 }
 
 void print_tcp(TCP tcp) {
-    printf("S-PORT ");
+    printf("S-PORT\t");
     printf("%d\n", tcp.s_port);
-    printf("D-PORT ");
+    printf("D-PORT\t");
     printf("%d\n", tcp.d_port);
 }
 
@@ -109,7 +109,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "couldn't open device %s: %s\n", dev, errbuf);
     return -1;
   }
-
+  int packet_num = 1;
   while (true) {
     struct pcap_pkthdr* header;
     const u_char* packet;
@@ -120,6 +120,8 @@ int main(int argc, char* argv[]) {
     int ethernet_header_size = 14;
     Ethernet eth = make_eth_struct(packet);
 
+    printf("\npacket number: %d\n",packet_num++);
+    printf("--------------------------\n");
     if (print_eth(eth)) {    // if IP protocol
         IP ip = make_ip_struct(&packet[ethernet_header_size]);
         if (print_ip(ip)) {  // if tcp protocol
@@ -127,7 +129,7 @@ int main(int argc, char* argv[]) {
             TCP tcp = make_tcp_struct(&packet[tcp_offset]);
             print_tcp(tcp);
 
-            printf("data ");
+            printf("data\t");
             int data_offset = tcp_offset + tcp.header_length;
             for (int i=0; i<10; i++) {   // if packet has tcp data
                 if (header->caplen > (data_offset + i)) {
@@ -137,7 +139,7 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    printf("\n-----------------------\n");
+    printf("\n--------------------------\n");
   }
 
   pcap_close(handle);
