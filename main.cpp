@@ -1,100 +1,32 @@
 #include <arpa/inet.h>
+#include <libnet.h>
 #include <pcap.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdlib.h>
 
-struct Ethernet {
-    const u_char* d_mac;
-    const u_char* s_mac;
-    uint16_t type;
-};
+#define ETH_LEN 14
+#define MAC_LEN 6
+#define IP_LEN 4
 
-struct IP {
-    const u_char* d_ip;
-    const u_char* s_ip;
-    uint8_t protocol;
-    uint8_t ip_header_size;
-    uint16_t total_size;
-};
-
-struct TCP {
-    uint16_t d_port;
-    uint16_t s_port;
-    uint8_t header_length;
-};
-
-Ethernet make_eth_struct(const u_char* packet) {
-    Ethernet eth;
-    eth.d_mac = &packet[0];
-    eth.s_mac = &packet[6];
-    eth.type = (packet[12] << 8) | packet[13];
-
-    return eth;
-}
-
-IP make_ip_struct(const u_char* packet) {
-    IP ip;
-    ip.s_ip = &packet[12];
-    ip.d_ip = &packet[16];
-    ip.protocol = packet[9];
-    ip.ip_header_size = (packet[0] & 0x0f) << 2;
-    ip.total_size = (packet[2] << 8) | packet[3];
-
-    return ip;
-}
-
-TCP make_tcp_struct(const u_char* packet) {
-    TCP tcp;
-    tcp.s_port = (packet[0] << 8) | packet[1];
-    tcp.d_port = (packet[2] << 8) | packet[3];
-    tcp.header_length = (packet[12] >> 4) << 2;
-
-    return tcp;
-}
 
 void usage() {
   printf("syntax: pcap_test <interface>\n");
   printf("sample: pcap_test wlan0\n");
 }
 
-void print_mac(const u_char* n) {
-    printf("%02x:%02x:%02x:%02x:%02x:%02x\n", n[0], n[1], n[2], n[3], n[4], n[5]);
+void print_mac(uint8_t *mac) {
+    printf("%02x:%02x:%02x:%02x:%02x:%02x\n",mac[0],mac[1],mac[2],mac[3],mac[4],mac[5]);
 }
 
-int print_eth(Ethernet eth) {
-    printf("S-MAC\t");
-    print_mac(eth.s_mac);
-    printf("D-MAC\t");
-    print_mac(eth.d_mac);
-
-    // is IP?
-    if (eth.type == 0x0800)
-        return 1;
-    return 0;
+void print_ip(in_addr ip) {
+    printf("%s\n",inet_ntoa(ip));
 }
 
-void print_ip_addr(const u_char* n) {
-    printf("%d.%d.%d.%d\n", n[0], n[1], n[2], n[3]);
+void print_port(uint16_t port) {
+    printf("%d\n",ntohs(port));
 }
 
-int print_ip(IP ip) {
-    printf("S-IP\t");
-    print_ip_addr(ip.s_ip);
-    printf("D-IP\t");
-    print_ip_addr(ip.d_ip);
-
-    // is TCP?
-    if (ip.protocol == 0x06)
-        return 1;
-    return 0;
-}
-
-void print_tcp(TCP tcp) {
-    printf("S-PORT\t");
-    printf("%d\n", tcp.s_port);
-    printf("D-PORT\t");
-    printf("%d\n", tcp.d_port);
-}
 
 int main(int argc, char* argv[]) {
   if (argc != 2) {
@@ -117,29 +49,39 @@ int main(int argc, char* argv[]) {
     if (res == 0) continue;
     if (res == -1 || res == -2) break;
 
-    int ethernet_header_size = 14;
-    Ethernet eth = make_eth_struct(packet);
-
     printf("\npacket number: %d\n",packet_num++);
-    printf("--------------------------\n");
-    if (print_eth(eth)) {    // if IP protocol
-        IP ip = make_ip_struct(&packet[ethernet_header_size]);
-        if (print_ip(ip)) {  // if tcp protocol
-            int tcp_offset = ethernet_header_size + ip.ip_header_size;
-            TCP tcp = make_tcp_struct(&packet[tcp_offset]);
-            print_tcp(tcp);
+    printf("==========================\n");
+    
+    libnet_ethernet_hdr *eth = (struct libnet_ethernet_hdr*)packet;
+    printf("D-MAC\t");
+    print_mac(eth->ether_dhost);
+    printf("S-MAC\t");
+    print_mac(eth->ether_shost);
+
+    if (ntohs(eth->ether_type) == 0x0800) {
+        libnet_ipv4_hdr *ip = (struct libnet_ipv4_hdr*)&packet[ETH_LEN];
+        printf("D-IP\t");
+        print_ip(ip->ip_dst);
+        printf("S-IP\t");
+        print_ip(ip->ip_src);
+
+        if (ip->ip_p == 0x6) {
+            libnet_tcp_hdr *tcp = (struct libnet_tcp_hdr*)&packet[ETH_LEN + ip->ip_hl*4];
+            printf("D-PORT\t");
+            print_port(tcp->th_dport);
+            printf("S-PORT\t");
+            print_port(tcp->th_sport);
 
             printf("data\t");
-            int data_offset = tcp_offset + tcp.header_length;
-            for (int i=0; i<10; i++) {   // if packet has tcp data
-                if (header->caplen > (data_offset + i)) {
-                    printf("%02x ", packet[ethernet_header_size + ip.ip_header_size + tcp.header_length + i]);
-                }
+            int data_offset = ETH_LEN + ip->ip_hl*4 + tcp->th_off*4;
+            for (int i=0; i<10; i++) {
+                if (data_offset + i < header->caplen)
+                    printf("%02x ",packet[data_offset + i]);
             }
+            printf("\n");
         }
     }
-
-    printf("\n--------------------------\n");
+    printf("==========================\n\n");
   }
 
   pcap_close(handle);
